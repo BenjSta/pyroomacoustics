@@ -612,6 +612,7 @@ import warnings
 
 import numpy as np
 import scipy.spatial as spatial
+import scipy.optimize as optimize
 
 from . import beamforming as bf
 from . import libroom
@@ -2625,7 +2626,7 @@ class Room(object):
             The formula to use for the calculation, 'sabine' (default) or 'eyring'
         """
 
-        rt60 = 0.0
+        rt60_octave_bands = [] 
 
         if self.is_multi_band:
             bandwidths = self.octave_bands.get_bw()
@@ -2659,10 +2660,22 @@ class Room(object):
             else:
                 raise ValueError("Only Eyring and Sabine's formulas are supported")
 
-            rt60 += rt60_loc * bw
+            rt60_octave_bands.append(rt60_loc)
+        
+        if len(rt60_octave_bands) == 1:
+            return rt60_octave_bands[0]
+        else:
+            rt60_octave_bands = np.array(rt60_octave_bands)
 
-        rt60 /= np.sum(bandwidths)
-        return rt60
+            def decaysum(tau, weight_f, tau_f):
+                energy = np.sum(weight_f * 10**(-60 / 10 * tau / tau_f)) / np.sum(weight_f)
+                difference_db = 10 * np.log10(energy) + 60
+                return difference_db
+
+            rt60 = scipy.optimize.fsolve(decaysum, np.max(rt60_octave_bands),
+                                         args=(bandwidth, rt60_octave_bands), xtol=0.1)
+        
+            return rt60
 
     def measure_rt60(self, decay_db=60, plot=False):
         """
